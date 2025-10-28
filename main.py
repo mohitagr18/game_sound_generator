@@ -1,6 +1,6 @@
 from flask import Flask, request, jsonify
 from schemas import Event
-from session_logger import SessionLogger
+from session_logger import SessionLogger, serialize_entry
 
 app = Flask(__name__)
 logger = SessionLogger()
@@ -18,6 +18,23 @@ def post_event():
 @app.route("/log", methods=["GET"])
 def get_log():
     return logger.to_json(), 200
+
+@app.route("/replay", methods=["POST"])
+def replay():
+    event_dicts = request.json
+    replayed = logger.replay_log(event_dicts)
+    # Use serialize_entry to make replayed log fully JSON serializable
+    return jsonify([serialize_entry(entry) for entry in replayed]), 200
+
+@app.route("/kpi", methods=["GET"])
+def report():
+    # Returns KPI stats for current session
+    return jsonify(logger.kpi_report()), 200
+
+
+
+
+
 
 if __name__ == "__main__":
     app.run(debug=True, port=8080)

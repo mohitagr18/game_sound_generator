@@ -1,0 +1,17 @@
+[
+  {
+    "state": "combat",
+    "intensity": 90,
+    "flags": ["boss"]
+  },
+  {
+    "state": "combat",
+    "intensity": 30,
+    "flags": ["boss"]
+  },
+  {
+    "state": "explore",
+    "intensity": 40,
+    "flags": []
+  }
+]

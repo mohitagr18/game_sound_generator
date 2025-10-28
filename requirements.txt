@@ -1,6 +1,6 @@
 # Core Framework
 Flask>=3.0.3                # Latest stable Flask
-google-adk>=1.16.0          # Latest ADK (as you noted, 1.17.x series)
+google-adk>=1.16.0          # Latest ADK 
 gunicorn>=23.0.0            # Production WSGI server
 
 # Audio Processing

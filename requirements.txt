@@ -1,0 +1,18 @@
+# Core Framework
+Flask>=3.0.3                # Latest stable Flask
+google-adk>=1.16.0          # Latest ADK (as you noted, 1.17.x series)
+gunicorn>=23.0.0            # Production WSGI server
+
+# Audio Processing
+pydub>=0.25.1               # Latest stable (unchanged since 2021, mature/stable)
+librosa>=0.11.0             # Latest stable release (March 2025)
+soundfile>=0.12.1           # Audio I/O library
+ffmpeg-python>=0.2.0        # FFmpeg wrapper for pydub
+
+# Data Validation & Config
+pydantic>=2.9.0             # Latest v2 series
+python-dotenv>=1.0.1        # Environment management
+
+# Optional but recommended
+streamlit>=1.39.0           # Latest Streamlit for console UI
+httpx>=0.27.0               # Modern async HTTP client (alternative to requests)

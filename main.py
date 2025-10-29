@@ -1,6 +1,7 @@
 from flask import Flask, request, jsonify
 from schemas import Event
 from session_logger import SessionLogger, serialize_entry
+from llm_advisor import LLMAdvisor
 
 app = Flask(__name__)
 logger = SessionLogger()
@@ -30,6 +31,18 @@ def replay():
 def report():
     # Returns KPI stats for current session
     return jsonify(logger.kpi_report()), 200
+
+@app.route("/advisor", methods=["POST"])
+def advisor_route():
+    data = request.json
+    session_log = data.get("session_log", [])
+    current_state = data.get("current_state", {})
+    user_query = data.get("user_query")
+
+    advisor = LLMAdvisor()
+    recommendation = advisor.recommend(session_log, current_state, user_query)
+    return jsonify(recommendation), 200
+
 
 
 

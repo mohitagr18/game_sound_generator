@@ -23,22 +23,41 @@ class LLMAdvisor:
 
     def _parse_response(self, response):
         text = response.text
-        # Find the first JSON block, either as plain `{...}` or inside ``````
-        match = re.search(r'``````|({[\s\S]+?})', text)
+        match = re.search(r'```(?:json)?\s*({[\s\S]+?})\s*```|({[\s\S]+?})', text)
+        
         next_intent = {}
         explanation = text
+        
         if match:
             json_str = match.group(1) if match.group(1) else match.group(2)
             try:
                 next_intent = json.loads(json_str)
-                # Remove both code block and JSON from explanation for clarity
-                explanation = text.replace(f"``````", "").replace(json_str, "").strip()
+                # Remove JSON/codeblock from explanation, preserve reasoning text
+                explanation = text.replace(f"```{json_str}```", "").replace(json_str, "").strip()
             except Exception as e:
-                print("Error parsing LLM JSON:", e)
+                print(f"Error parsing LLM JSON: {e}")
+                print(f"Offending JSON string: {json_str}")
         return {
             "next_intent": next_intent,
             "explanation": explanation
         }
+
+    def _parse_intent(self, llm_output):
+        # Use the same robust regex here
+        match = re.search(r'```(?:json)?\s*({[\s\S]+?})\s*```|({[\s\S]+?})', llm_output)
+        
+        if match:
+            # This logic is also correct now
+            json_str = match.group(1) if match.group(1) else match.group(2)
+            try:
+                return json.loads(json_str)
+            except Exception as e:
+                print(f"Error parsing LLM JSON: {e}")
+                print(f"Offending JSON string: {json_str}")
+                return {}
+        else:
+            print("No JSON found in LLM response.")
+            return {}
 
 
     def _build_prompt(self, session_log, current_state, user_query):
@@ -61,20 +80,3 @@ class LLMAdvisor:
         if user_query:
             prompt += f"\nUser question: {user_query}"
         return prompt
-
-
-    def _parse_intent(self, llm_output):
-        # Regex to find first JSON object in response (inside or outside code block)
-        match = re.search(r'``````|({[\s\S]+?})', llm_output)
-        if match:
-            json_str = match.group(1) if match.group(1) else match.group(2)
-            try:
-                return json.loads(json_str)
-            except Exception as e:
-                print("Error parsing LLM JSON:", e)
-                return {}
-        else:
-            print("No JSON found in LLM response.")
-            return {}
-
-

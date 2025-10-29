@@ -1,10 +1,14 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, render_template_string
 from schemas import Event
 from session_logger import SessionLogger, serialize_entry
 from llm_advisor import LLMAdvisor
+from dotenv import load_dotenv
+load_dotenv()
+
 
 app = Flask(__name__)
 logger = SessionLogger()
+advisor = LLMAdvisor()
 
 @app.route("/events", methods=["POST"])
 def post_event():
@@ -43,6 +47,47 @@ def advisor_route():
     recommendation = advisor.recommend(session_log, current_state, user_query)
     return jsonify(recommendation), 200
 
+
+# Simple HTML with three inputs and one output box
+HTML = """
+<!DOCTYPE html>
+<html>
+<head><title>Game Sound LLMAdvisor Demo</title></head>
+<body>
+<h2>Game Sound LLMAdvisor Demo UI</h2>
+<form method="post">
+    <label>Session Log (JSON):</label><br>
+    <textarea name="sessionlog" rows="6" cols="50">{{sessionlog}}</textarea><br><br>
+    <label>Current State (JSON):</label><br>
+    <textarea name="currentstate" rows="3" cols="50">{{currentstate}}</textarea><br><br>
+    <label>User Query:</label><br>
+    <input name="userquery" type="text" size="60" value="{{userquery}}"/><br><br>
+    <input type="submit" value="Ask Advisor"/>
+</form>
+{% if response %}
+<h3>LLMAdvisor Response</h3>
+<pre>{{response}}</pre>
+{% endif %}
+</body>
+</html>
+"""
+
+@app.route('/demo', methods=['GET', 'POST'])
+def demo_ui():
+    sessionlog = request.form.get('sessionlog', '')
+    currentstate = request.form.get('currentstate', '')
+    userquery = request.form.get('userquery', '')
+    response = None
+    if request.method == 'POST':
+        try:
+            # Simple eval for demo; in real world, use json.loads and validate!
+            log = eval(sessionlog) if sessionlog else None
+            state = eval(currentstate) if currentstate else None
+            resp = advisor.recommend(log, state, userquery)
+            response = str(resp)
+        except Exception as e:
+            response = f"Error: {str(e)}"
+    return render_template_string(HTML, sessionlog=sessionlog, currentstate=currentstate, userquery=userquery, response=response)
 
 
 

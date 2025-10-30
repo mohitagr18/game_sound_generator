@@ -54,6 +54,26 @@ if sent:
         resp = advisor.recommend(sessionlog, currentstate, userquery)
         
         intent = resp.get("next_intent", None)
+
+        if intent is None and "explanation" in resp:
+            # Try to extract a JSON musical intent from explanation
+            
+            # 1. FIXED REGEX: This now looks for a ```json {..}``` block OR a bare {..} block
+            # It has two capture groups: (group 1) for backtick content, (group 2) for bare content
+            json_block_regex = r'```(?:json)?\s*({[\s\S]+?})\s*```|({[\s\S]+?})'
+            
+            match = re.search(json_block_regex, resp["explanation"])
+            
+            if match:
+                try:
+                    # 2. FIXED PARSING: Get the correct group (1 or 2)
+                    json_str = match.group(1) if match.group(1) else match.group(2)
+                    
+                    if json_str:
+                        # 3. FIXED LOADS: Parse the clean string, no .replace() needed
+                        intent = json.loads(json_str) 
+                except Exception:
+                    intent = None
         
         # Store history for replay
         st.session_state.history.append({
@@ -70,7 +90,7 @@ if sent:
         st.error(f"Error: {e}")
 
 # Always display last Musical Intent and Reasoning after any run
-if st.session_state.intent_report:
+if st.session_state.intent_report is not None:
     st.subheader("Musical Intent")
     intent = st.session_state.intent_report
     st.markdown(f"""
@@ -83,27 +103,39 @@ if st.session_state.intent_report:
 | Timestamp     | {intent.get('timestamp', '')} |
 """)
     
-    # Basic theme-mp3 playback mapping
+    # --- NEW ALIAS MAPPING FOR AUDIO THEME FLEXIBILITY ---
     AUDIO_DIR = "audio_clips"
-    THEME_TO_CLIP = {
-        "explore": "explore.mp3",
-        "combat": "combat.mp3",
-        "stealth": "stealth.mp3",
-        "boss_combat": "boss.mp3"
+    THEME_ALIASES = {
+        "explore": "explore",
+        "exploring": "explore",
+        "exploration": "explore",
+        "stealth": "stealth",
+        "hidden": "stealth",
+        "combat": "combat",
+        "battle": "combat",
+        "boss_combat": "boss",
+        "bosscombat": "boss",
+        "boss": "boss"
     }
-    theme = intent.get('theme', None)
+    AUDIO_MAP = {
+        "explore": "explore.mp3",
+        "stealth": "stealth.mp3",
+        "combat": "combat.mp3",
+        "boss": "boss.mp3"
+    }
+    theme_raw = intent.get('theme', None).lower()
+    theme_key = THEME_ALIASES.get(theme_raw, theme_raw)
+    
     audio_file = None
-    if theme in THEME_TO_CLIP:
-        audio_path = os.path.join(AUDIO_DIR, THEME_TO_CLIP[theme])
-        
-        st.write("Looking for audio at:", audio_path)
-        st.write("Theme:", theme)
-
-        if os.path.isfile(audio_path):
-            st.markdown(f"#### Music Preview: {THEME_TO_CLIP[theme]}")
-            st.audio(audio_path)
-        else:
-            st.warning(f"No audio file found for theme '{theme}' (expected: {audio_path})")
+    audio_path = os.path.join(AUDIO_DIR, AUDIO_MAP.get(theme_key, ""))
+    # st.write("Theme from Intent:", theme_raw)
+    # st.write("Canonical theme key:", theme_key)
+    st.write("Audio file search:", audio_path)
+    if audio_path and os.path.isfile(audio_path):
+        st.markdown(f"#### Music Preview: {theme_key.capitalize()}")
+        st.audio(audio_path)
+    else:
+        st.warning(f"No audio file found for theme '{theme_key}' (expected: {audio_path})")
 
 
 if st.session_state.reasoning_report:

@@ -2,14 +2,65 @@ import streamlit as st
 import ast
 import re
 import json
+import os
 from llm_advisor import LLMAdvisor
 from dotenv import load_dotenv
-import os
 load_dotenv()
 
 st.title("Game Sound LLMAdvisor Demo UI")
 
-# Session state for memory, replay, and last result
+# --- PRESETS ---
+DEFAULT_STATES = ["explore", "stealth", "combat", "boss_combat"]
+DEFAULT_FLAGS = ["lowhealth", "boss", "safe", "alert"]
+STATE_TO_FLAGS = {
+    "explore": ["safe"],
+    "stealth": ["alert"],
+    "combat": ["alert", "boss"],
+    "boss_combat": ["boss", "alert"]
+}
+
+AUDIO_DIR = "audio_clips"
+
+AUDIO_MAP = {
+    "explore": "explore.mp3",
+    "stealth": "stealth.mp3",
+    "combat": "combat.mp3",
+    "boss": "boss.mp3"
+}
+
+# --- NEW FLEXIBLE MAPPING LOGIC ---
+# We check in this specific order. "boss" must be checked before "combat".
+# These are the *keywords* we'll search for.
+THEME_KEYWORD_MAP = [
+    ("boss", ["boss"]),
+    ("combat", ["combat", "battle"]),
+    ("stealth", ["stealth", "hidden"]),
+    ("explore", ["explor"]), # Will match "explore", "exploration"
+]
+
+def get_theme_key(theme_str):
+    """
+    Normalizes the LLM's theme string and maps it to a theme key.
+    """
+    if not theme_str:
+        return None
+    
+    # Normalize: "Vulnerable_Exploration" -> "vulnerable exploration"
+    # Normalize: "VulnerableExploration" -> "vulnerable exploration"
+    s = str(theme_str).lower()
+    s = s.replace("_", " ").replace("-", " ")
+    s = re.sub(r'([a-z])([A-Z])', r'\1 \2', s) # Split camelCase
+
+    # Check keywords in order
+    for key, keywords in THEME_KEYWORD_MAP:
+        for keyword in keywords:
+            if keyword in s:
+                return key # Found a match
+
+    return None # No match found
+# --- END NEW LOGIC ---
+
+
 if "history" not in st.session_state:
     st.session_state.history = []
 if "replay_index" not in st.session_state:
@@ -19,81 +70,115 @@ if "intent_report" not in st.session_state:
 if "reasoning_report" not in st.session_state:
     st.session_state.reasoning_report = None
 
-# Autofill on rerun after replay (before widgets)
+# --- Autofill after replay ---
 if st.session_state.replay_index is not None:
     entry = st.session_state.history[st.session_state.replay_index]
-    st.session_state.sessionlog_input = entry["sessionlog"]
-    st.session_state.currentstate_input = entry["currentstate"]
+    st.session_state.current_state = entry["currentstate_struct"]
+    st.session_state.flags = entry["flags_struct"]
+    st.session_state.intensity = entry["intensity_struct"]
     st.session_state.userquery = entry["userquery"]
+    st.session_state.sessionlog_autogen = entry["sessionlog_struct"]
     st.session_state.intent_report = entry["intent"]
     st.session_state.reasoning_report = entry["reasoning"]
     st.session_state.replay_index = None
 
-sessionlog_input = st.text_area(
-    "Session Log (Python list/dict, e.g. [{'event': ...}]):",
-    value=st.session_state.get("sessionlog_input", ""),
-    key="sessionlog_input"
-)
-currentstate_input = st.text_area(
-    "Current State (Python dict, e.g. {'state': ...}):",
-    value=st.session_state.get("currentstate_input", ""),
-    key="currentstate_input"
-)
+# --- Structured UI ---
+st.header("Game State Selection")
+col1, col2, col3 = st.columns([3,2,3])
+with col1:
+    current_state = st.selectbox("Current Game State", DEFAULT_STATES, key="current_state")
+with col2:
+    intensity = st.slider("Intensity (0-100)", 0, 100, 50, key="intensity")
+with col3:
+    possible_flags = STATE_TO_FLAGS.get(current_state, []) + [f for f in DEFAULT_FLAGS if f not in STATE_TO_FLAGS.get(current_state, [])]
+    flags = st.multiselect("Flags", possible_flags, default=STATE_TO_FLAGS.get(current_state,[]), key="flags")
+
+st.header("User Query")
 userquery = st.text_input(
-    "User Query:",
-    value=st.session_state.get("userquery", ""),
+    "Describe your request or scenario:",
+    value=st.session_state.get("userquery",""),
     key="userquery"
 )
 
+# --- Auto-generate session log & state for LLM ---
+session_event = {"event": {"state": current_state, "intensity": intensity, "flags": flags}}
+sessionlog_struct = [session_event]
+currentstate_struct = {"state": current_state, "intensity": intensity, "flags": flags}
+
+# st.markdown("**Session Log Preview:**")
+# st.json(sessionlog_struct)
+# st.markdown("**Current State Preview:**")
+# st.json(currentstate_struct)
+
+# --- Primary interaction ---
 sent = st.button("Ask Advisor")
+
 if sent:
     advisor = LLMAdvisor()
     try:
-        sessionlog = ast.literal_eval(sessionlog_input) if sessionlog_input.strip() else None
-        currentstate = ast.literal_eval(currentstate_input) if currentstate_input.strip() else None
-        resp = advisor.recommend(sessionlog, currentstate, userquery)
-        
+        # --- First Attempt ---
+        resp = advisor.recommend(sessionlog_struct, currentstate_struct, userquery)
         intent = resp.get("next_intent", None)
+        explanation = resp.get("explanation", "") # Get explanation from first resp
 
-        if intent is None and "explanation" in resp:
-            # Try to extract a JSON musical intent from explanation
-            
-            # 1. FIXED REGEX: This now looks for a ```json {..}``` block OR a bare {..} block
-            # It has two capture groups: (group 1) for backtick content, (group 2) for bare content
-            json_block_regex = r'```(?:json)?\s*({[\s\S]+?})\s*```|({[\s\S]+?})'
-            
+        # --- Fallback Parsing (if intent is None or empty dict {}) ---
+        if (intent is None or not intent) and "explanation" in resp:
+            json_block_regex = r'```(?:json)?\s*({[\sS]+?})\s*```|({[\s\S]+?})'
             match = re.search(json_block_regex, resp["explanation"])
-            
             if match:
                 try:
-                    # 2. FIXED PARSING: Get the correct group (1 or 2)
                     json_str = match.group(1) if match.group(1) else match.group(2)
-                    
                     if json_str:
-                        # 3. FIXED LOADS: Parse the clean string, no .replace() needed
                         intent = json.loads(json_str) 
                 except Exception:
                     intent = None
-        
-        # Store history for replay
+
+        # --- RETRY LOGIC ---
+        # If intent is STILL empty after first call + fallback, it's a cold start.
+        if (intent is None or not intent):
+            # --- Second Attempt ---
+            resp_retry = advisor.recommend(sessionlog_struct, currentstate_struct, userquery)
+            intent = resp_retry.get("next_intent", None)
+            explanation = resp_retry.get("explanation", "") # Use the new explanation
+
+            # Re-run fallback parsing on the *new* response
+            if (intent is None or not intent) and "explanation" in resp_retry:
+                json_block_regex = r'```(?:json)?\s*({[\s\S]+?})\s*```|({[\s\S]+?})'
+                match = re.search(json_block_regex, resp_retry["explanation"])
+                if match:
+                    try:
+                        json_str = match.group(1) if match.group(1) else match.group(2)
+                        if json_str:
+                            intent = json.loads(json_str) 
+                    except Exception:
+                        intent = None # Final failure
+
+        # --- Save to session_state ---
         st.session_state.history.append({
-            "sessionlog": sessionlog_input,
-            "currentstate": currentstate_input,
+            "sessionlog_struct": sessionlog_struct,
+            "currentstate_struct": currentstate_struct,
+            "flags_struct": flags,
+            "intensity_struct": intensity,
             "userquery": userquery,
             "intent": intent,
-            "reasoning": resp.get("explanation", "")
+            "reasoning": explanation 
         })
         st.session_state.intent_report = intent
-        st.session_state.reasoning_report = resp.get("explanation", "")
+        st.session_state.reasoning_report = explanation
         
     except Exception as e:
         st.error(f"Error: {e}")
 
-# Always display last Musical Intent and Reasoning after any run
+# --- Display intent, music, reasoning as before ---
 if st.session_state.intent_report is not None:
     st.subheader("Musical Intent")
     intent = st.session_state.intent_report
-    st.markdown(f"""
+    
+    # Check if intent is still empty (final fallback)
+    if not intent:
+        st.warning("Failed to retrieve musical intent after retry.")
+    else:
+        st.markdown(f"""
 | Key           | Value |
 |---------------|-------|
 | Theme         | {intent.get('theme','')} |
@@ -102,59 +187,45 @@ if st.session_state.intent_report is not None:
 | Fade Durations| {intent.get('fadedurations', '')} |
 | Timestamp     | {intent.get('timestamp', '')} |
 """)
-    
-    # --- NEW ALIAS MAPPING FOR AUDIO THEME FLEXIBILITY ---
-    AUDIO_DIR = "audio_clips"
-    THEME_ALIASES = {
-        "explore": "explore",
-        "exploring": "explore",
-        "exploration": "explore",
-        "stealth": "stealth",
-        "hidden": "stealth",
-        "combat": "combat",
-        "battle": "combat",
-        "boss_combat": "boss",
-        "bosscombat": "boss",
-        "boss": "boss"
-    }
-    AUDIO_MAP = {
-        "explore": "explore.mp3",
-        "stealth": "stealth.mp3",
-        "combat": "combat.mp3",
-        "boss": "boss.mp3"
-    }
-    theme_raw = intent.get('theme', None).lower()
-    theme_key = THEME_ALIASES.get(theme_raw, theme_raw)
-    
-    audio_file = None
-    audio_path = os.path.join(AUDIO_DIR, AUDIO_MAP.get(theme_key, ""))
-    # st.write("Theme from Intent:", theme_raw)
-    # st.write("Canonical theme key:", theme_key)
-    st.write("Audio file search:", audio_path)
-    if audio_path and os.path.isfile(audio_path):
-        st.markdown(f"#### Music Preview: {theme_key.capitalize()}")
-        st.audio(audio_path)
-    else:
-        st.warning(f"No audio file found for theme '{theme_key}' (expected: {audio_path})")
 
+        # --- THIS BLOCK IS UPDATED ---
+        theme_raw = intent.get('theme', "")
+        theme_key = get_theme_key(theme_raw) # Use new flexible mapping function
 
-if st.session_state.reasoning_report:
+        if theme_key:
+            audio_path = os.path.join(AUDIO_DIR, AUDIO_MAP.get(theme_key, ""))
+        else:
+            audio_path = None # No key was found
+
+        if audio_path and os.path.isfile(audio_path):
+            st.markdown(f"#### Music Preview: {theme_key.capitalize()}")
+            st.audio(audio_path)
+        else:
+            # Updated warning to be more helpful for debugging
+            st.warning(f"No audio file found for theme '{theme_raw}' (Could not map to a file)")
+        # --- END UPDATED BLOCK ---
+
+# --- Reasoning display block (this code is correct) ---
+if st.session_state.reasoning_report is not None:
     st.subheader("Reasoning")
     explanation = st.session_state.reasoning_report
-    # 1. Remove the JSON block (this regex is correct)
+    
+    # 1. Removes the JSON code block
     json_block_regex = r'^\s*(?:```(?:json)?\s*\{[\s\S]+?\}\s*```|(\{[\s\S]+\}))'
     explanation = re.sub(json_block_regex, "", explanation).strip()
-    # 2. NEW FIX: Remove any "undefined" code block
+    
+    # 2. Removes an "undefined" code block
     undefined_code_block_regex = r'^\s*```(?:[a-z]+)?\s*undefined\s*```'
     explanation = re.sub(undefined_code_block_regex, "", explanation, flags=re.IGNORECASE).strip()
-    # 3. Clean up any remaining plain "undefined" text at the start.
+    
+    # 3. Removes any leftover "undefined" plain text
     explanation = re.sub(r"^\s*undefined\s*", "", explanation, flags=re.IGNORECASE).strip()
-
+    
     st.markdown(explanation)
 else:
-    st.info("Enter session log, current state, and a user query, then click 'Ask Advisor'.")
+    st.info("Set the state, flags, intensity, and enter a query, then click 'Ask Advisor'.")
 
-# Display history & replay (simple readable layout)
+# --- Session History w/ Replay ---
 if st.session_state.history:
     st.markdown("---")
     st.subheader("Session History")
@@ -163,7 +234,7 @@ if st.session_state.history:
         st.markdown(f"**User Query:** {entry['userquery']}")
         theme = entry['intent'].get('theme', '') if entry['intent'] else ''
         st.markdown(f"**Theme:** {theme}")
-        st.markdown(f"**State:** {entry['currentstate']}")
+        st.markdown(f"**State:** {entry['currentstate_struct']}")
         if st.button(f"Replay {idx}", key=f"replay_{idx}"):
             st.session_state.replay_index = idx
             st.rerun()

@@ -28,6 +28,8 @@ AUDIO_MAP = {
     "boss": "boss.mp3"
 }
 
+DEFAULT_USER_QUERY = "I'm in a safe area just exploring, but I can see a large enemy in the distance. Make the music feel a bit more tense."
+
 # --- NEW FLEXIBLE MAPPING LOGIC ---
 # We check in this specific order. "boss" must be checked before "combat".
 # These are the *keywords* we'll search for.
@@ -35,7 +37,7 @@ THEME_KEYWORD_MAP = [
     ("boss", ["boss"]),
     ("combat", ["combat", "battle"]),
     ("stealth", ["stealth", "hidden"]),
-    ("explore", ["explor"]), # Will match "explore", "exploration"
+    ("explore", ["explor", "jungle", "wondrous", "mysterious"]), # Will match "explore", "exploration"
 ]
 
 def get_theme_key(theme_str):
@@ -58,7 +60,15 @@ def get_theme_key(theme_str):
                 return key # Found a match
 
     return None # No match found
-# --- END NEW LOGIC ---
+
+def format_dict_as_bullets(data_dict):
+    """Converts a dict to a markdown bulleted list."""
+    if not data_dict or not isinstance(data_dict, dict):
+        return "_None_"
+    
+    # Use markdown bullets, formatting the key as code
+    bullets = [f"- `{key}`: {value}" for key, value in data_dict.items()]
+    return "\n".join(bullets)
 
 
 if "history" not in st.session_state:
@@ -96,9 +106,17 @@ with col3:
 st.header("User Query")
 userquery = st.text_input(
     "Describe your request or scenario:",
-    value=st.session_state.get("userquery",""),
+    value=st.session_state.get("userquery", DEFAULT_USER_QUERY),
     key="userquery"
 )
+
+st.caption("""
+**Examples:**
+* Explore: Just entered a new jungle area, make it feel wondrous and mysterious.
+* Stealth: I'm sneaking past some guards, it needs to be quiet but tense.
+* Combat: A group of enemies just spotted me, start the battle music!
+* Boss combat: The main boss just appeared, make it epic and threatening!
+""")
 
 # --- Auto-generate session log & state for LLM ---
 session_event = {"event": {"state": current_state, "intensity": intensity, "flags": flags}}
@@ -178,17 +196,27 @@ if st.session_state.intent_report is not None:
     if not intent:
         st.warning("Failed to retrieve musical intent after retry.")
     else:
-        st.markdown(f"""
-| Key           | Value |
-|---------------|-------|
-| Theme         | {intent.get('theme','')} |
-| Active Stems  | {', '.join(intent.get('activestems', []))} |
-| Target Gains  | {intent.get('targetgains', '')} |
-| Fade Durations| {intent.get('fadedurations', '')} |
-| Timestamp     | {intent.get('timestamp', '')} |
-""")
+        # --- NEW FORMATTING BLOCK ---
+        st.markdown(f"**Theme:** {intent.get('theme','N/A')}")
+        
+        st.markdown("**Active Stems:**")
+        stems = intent.get('activestems', [])
+        # Display stems as a simple comma-separated string
+        st.markdown(f"_{', '.join(stems) if stems else 'None'}_")
 
-        # --- THIS BLOCK IS UPDATED ---
+        st.markdown("**Target Gains:**")
+        gains_dict = intent.get('targetgains', {})
+        st.markdown(format_dict_as_bullets(gains_dict))
+        
+        st.markdown("**Fade Durations:**")
+        fades_dict = intent.get('fadedurations', {})
+        st.markdown(format_dict_as_bullets(fades_dict))
+        
+        st.markdown(f"**Timestamp:** {intent.get('timestamp','N/A')}")
+        st.markdown("---") # Add a horizontal line
+        # --- END NEW FORMATTING BLOCK ---
+
+        # --- Audio player logic (unchanged) ---
         theme_raw = intent.get('theme', "")
         theme_key = get_theme_key(theme_raw) # Use new flexible mapping function
 
@@ -203,7 +231,6 @@ if st.session_state.intent_report is not None:
         else:
             # Updated warning to be more helpful for debugging
             st.warning(f"No audio file found for theme '{theme_raw}' (Could not map to a file)")
-        # --- END UPDATED BLOCK ---
 
 # --- Reasoning display block (this code is correct) ---
 if st.session_state.reasoning_report is not None:

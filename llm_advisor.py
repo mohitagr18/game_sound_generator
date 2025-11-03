@@ -9,7 +9,7 @@ import json
 from schemas import MixIntent, StemIntent
 
 def generate_mix_intent_from_folder(theme: str,
-                                    base_dir: str = "audioclips",
+                                    base_dir: str = "audio_clips",
                                     default_gain: float = 0.8,
                                     default_fade: float = 2.0
                                    ) -> MixIntent:

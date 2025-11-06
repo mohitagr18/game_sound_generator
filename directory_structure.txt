@@ -5,7 +5,7 @@ game_sound_generator/
 │   ├── combat/
 │   ├── explore/
 │   └── stealth/
-├── streamlit_stem_mixer/
+├── stem_mixer/
 │   ├── frontend/
 │   │   ├── build/
 │   │   │   ├── static/
@@ -30,10 +30,13 @@ game_sound_generator/
 ├── LICENSE
 ├── llm_advisor.py
 ├── main.py
+├── MANIFEST.in
+├── package.json
 ├── README.md
 ├── requirements.txt
 ├── schemas.py
 ├── session_events.json
 ├── session_logger.py
+├── setup.py
 ├── test_advisor_api.py
 └── test_demo.py

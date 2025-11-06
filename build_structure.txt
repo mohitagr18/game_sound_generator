@@ -1,9 +1,0 @@
-streamlit_stem_mixer/frontend/build/
-├─ asset-manifest.json
-├─ index.html
-├─ manifest.json
-└─ static/
-   └─ js/
-      ├─ main.bb367665.js
-      ├─ main.bb367665.js.LICENSE.txt
-      └─ main.bb367665.js.map

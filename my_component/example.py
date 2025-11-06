@@ -1,6 +1,6 @@
 from my_component import my_component
 
-my_component("debug value")
+my_component("explore.mp3")
 
 # import streamlit as st
 # from my_component import my_component

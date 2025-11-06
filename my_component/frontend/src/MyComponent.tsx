@@ -6,16 +6,15 @@ class MyComponent extends StreamlitComponentBase {
   sound: Howl | null = null;
 
   handlePlay = () => {
-  if (!this.sound) {
-    this.sound = new Howl({
-      src: ["/sound.mp3"]
-    });
-  } else {
-    this.sound.stop();
-  }
-  console.log("Play called");
+  const filename = this.props.args.name;
+  this.sound = new Howl({
+    src: [filename]
+  });
+  console.log("Play called for:", filename);
   this.sound.play();
 };
+
+
 
 
   render = () => {

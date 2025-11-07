@@ -1,6 +1,19 @@
-from my_component import my_component
+from stem_mixer import mix_and_transition
 
-my_component("explore.mp3")
+test_stems = [
+    {"filename": "audio_clips/explore/synth.wav", "targetgain": 0.8, "fadeduration": 2},
+    {"filename": "audio_clips/explore/pad.wav", "targetgain": 0.8, "fadeduration": 2},
+    # ...add more as needed
+]
+
+mix_and_transition(current_stems=test_stems, next_stems=[])
+
+
+
+
+# from my_component import my_component
+
+# my_component("explore.mp3")
 
 # import streamlit as st
 # from my_component import my_component

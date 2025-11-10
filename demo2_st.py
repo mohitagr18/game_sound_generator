@@ -2,10 +2,13 @@ import streamlit as st
 import os
 import re
 import time
-from llm_advisor import generate_mix_intent_from_folder
+import json
+from llm_advisor import LLMAdvisor, generate_mix_intent_from_folder
 from my_component.stem_mixer import mix_and_transition
+from dotenv import load_dotenv
 
-# --- Filename Label, Icon, Role Lookup ---
+load_dotenv()
+
 STEM_FRIENDLY = {
     "synth": ("Synth", "🎹", "Melody"),
     "pad": ("Pad", "🛋️", "Ambiance"),
@@ -15,7 +18,6 @@ STEM_FRIENDLY = {
     "chimes": ("Chimes", "🔔", "Accent"),
 }
 
-# --- Theme Normalization ---
 THEME_KEYWORD_MAP = [
     ("boss_combat", ["boss"]),
     ("combat", ["combat", "battle"]),
@@ -34,6 +36,30 @@ def get_theme_key(theme_str):
                 return key
     return None
 
+def extract_llm_json_and_reasoning(text):
+    stack = []
+    start = None
+    for i, c in enumerate(text):
+        if c == '{':
+            if not stack:
+                start = i
+            stack.append(c)
+        elif c == '}':
+            if stack:
+                stack.pop()
+                if not stack and start is not None:
+                    try:
+                        json_str = text[start:i+1]
+                        obj = json.loads(json_str)
+                        reasoning_raw = text[i+1:].strip(" \n:;")
+                        reasoning = reasoning_raw.split('"""')[0].strip()
+                        reasoning = re.split(r'[\n\r][\s]*[),]+[\n\r]', reasoning)[0].strip()
+                        return obj, reasoning
+                    except Exception as e:
+                        st.warning(f"Error parsing LLM JSON: {e}\n\n{text[start:i+1]}")
+                    break
+    return {}, ""
+
 # --- Session State Initialization ---
 if "history" not in st.session_state:
     st.session_state.history = []
@@ -45,19 +71,18 @@ if "next_stem_dicts" not in st.session_state:
     st.session_state.next_stem_dicts = []
 if "show_details" not in st.session_state:
     st.session_state.show_details = False
+if "llm_reasoning" not in st.session_state:
+    st.session_state.llm_reasoning = ""
 
 st.title("🎵 Game Audio StemMix Live Transition Demo")
 themes = ["explore", "stealth", "combat", "boss_combat"]
 
 col1, col2 = st.columns([1, 1], gap="large")
-
-# --- Theme Selectors ---
 with col1:
     st.markdown("#### 🎧 Current Theme")
     current_theme = st.selectbox(
         "Theme", themes, key="current_theme_select", index=0, help="Theme currently playing"
     )
-
 with col2:
     st.markdown("#### 🚀 Next Theme")
     next_theme = st.selectbox(
@@ -65,7 +90,7 @@ with col2:
     )
     normalized_next_theme = get_theme_key(next_theme)
 
-st.write("")  # For spacing before button
+st.write("")  # For spacing
 
 colb1, colb2 = st.columns([2, 1])
 with colb1:
@@ -73,11 +98,10 @@ with colb1:
         "🔄 Transition to Next Theme", help="Fade out current theme, crossfade in next theme"
     )
 with colb2:
-    st.write("")  # For alignment
+    st.write("")
 
 if clicked:
-    current_intent = generate_mix_intent_from_folder(
-        current_theme, base_dir="audio_clips/")
+    current_intent = generate_mix_intent_from_folder(current_theme, base_dir="audio_clips/")
     current_stem_dicts = [
         {"filename": f"{current_theme}/{os.path.basename(stem.file_path)}",
          "targetgain": stem.target_gain,
@@ -86,32 +110,57 @@ if clicked:
     ]
     st.session_state.current_stem_dicts = current_stem_dicts
 
-    next_intent = generate_mix_intent_from_folder(
-        normalized_next_theme, base_dir="audio_clips/")
-    next_stem_dicts = [
-        {"filename": f"{normalized_next_theme}/{os.path.basename(stem.file_path)}",
-         "targetgain": stem.target_gain,
-         "fadeduration": stem.fade_duration}
-        for stem in next_intent.stem_intents
-    ]
-    st.session_state.next_stem_dicts = next_stem_dicts
+    advisor = LLMAdvisor()
+    llm_output = advisor.recommend(
+        session_log=st.session_state.get("history", []),
+        current_state=current_stem_dicts,
+        next_theme=next_theme,
+        user_query=None
+    )
+    intent_dict = llm_output.get("next_intent", {})
+    reasoning = ""
+    if not intent_dict or not intent_dict.get("activestems"):
+        intent_dict, reasoning = extract_llm_json_and_reasoning(llm_output.get("explanation", ""))
+    else:
+        reasoning = llm_output.get("explanation", "")
+    st.session_state.llm_reasoning = reasoning
 
+    stems_out = []
+    for stem_name in intent_dict.get("activestems", []):
+        gain = intent_dict.get("targetgains", {}).get(stem_name, "?")
+        fade = intent_dict.get("fadedurations", {}).get(stem_name, "?")
+        stems_out.append({
+            "filename": stem_name,
+            "targetgain": gain,
+            "fadeduration": fade
+        })
+    st.session_state.next_stem_dicts = stems_out
+
+    fade_sec = stems_out[0]['fadeduration'] if stems_out else "?"
     st.session_state.status = f"✅ Transition: {current_theme} → {next_theme} Now Mixing..."
-    st.session_state.show_details = True  # Toggle stem detail display on
+    st.session_state.show_details = True
 
-    def get_friendly(stem):
-        fname = os.path.splitext(os.path.basename(stem["filename"]))[0]
-        return STEM_FRIENDLY.get(fname, (fname.title(), "🎵", "Unknown"))
-
-    fade_sec = next_stem_dicts[0]['fadeduration'] if next_stem_dicts else "?"
+    # --- History: Store FULL data for each theme and stem dicts for table display
     st.session_state.history.append({
         "timestamp": time.time(),
-        "From": f"{current_theme}: {', '.join(get_friendly(s)[1] + ' ' + get_friendly(s)[0] for s in current_stem_dicts)}",
-        "To": f"{next_theme}: {', '.join(get_friendly(s)[1] + ' ' + get_friendly(s)[0] for s in next_stem_dicts)}",
+        "from_theme": current_theme,
+        "from_stem_dicts": list(st.session_state.current_stem_dicts),  # full stem dicts
+        "to_theme": next_theme,
+        "to_stem_dicts": list(st.session_state.next_stem_dicts),
         "Transition": f"{current_theme} → {next_theme} | Crossfade over {fade_sec}s"
     })
 
-# --- Status and Mixing Details FIRST ---
+def stems_detail(stems, theme=None):
+    if not stems:
+        return ""
+    rows = []
+    for stem in stems:
+        fname = os.path.basename(stem.get("filename", ""))
+        gain = stem.get("targetgain", "?")
+        fade = stem.get("fadeduration", "?")
+        rows.append(f"{fname} (gain={gain}, fade={fade}s)")
+    return (f"{theme}: " if theme else "") + ", ".join(rows)
+
 if st.session_state.status:
     st.success(st.session_state.status)
     st.write("")
@@ -119,7 +168,7 @@ if st.session_state.status:
 if st.session_state.show_details:
     st.markdown("### 🎼 Mixing Details")
     colA, colB = st.columns(2)
-    # Panel: Current Theme Stems
+    # Current Theme Stems
     with colA:
         st.markdown(f"##### Current Theme: {current_theme}")
         for stem in st.session_state.current_stem_dicts:
@@ -128,44 +177,41 @@ if st.session_state.show_details:
                 (os.path.basename(stem["filename"]).title(), "🎵", "Unknown"))
             st.markdown(
                 f"""
-                <div style="background-color:#eef4fa;border-radius:8px;padding:8px; margin-bottom:4px;">
+                <div style="background-color:#eef4fa;color:#183151;border-radius:8px;padding:8px; margin-bottom:4px;">
                 <span style="font-size:1.2em">{icon}</span> <b>{friendly}</b> <span style="color:#888;">({role})</span>
                 <br><small>Gain: <b>{stem["targetgain"]}</b> &nbsp; Fade: <b>{stem["fadeduration"]}s</b></small>
                 </div>
                 """, unsafe_allow_html=True)
-    # Panel: Next Theme Stems
+    # Next Theme Stems
     with colB:
-        st.markdown(f"##### Next Theme: {next_theme}")
+        st.markdown(f"##### Next Theme: {next_theme} (LLM-generated)")
         for stem in st.session_state.next_stem_dicts:
             friendly, icon, role = STEM_FRIENDLY.get(
                 os.path.splitext(os.path.basename(stem["filename"]))[0],
                 (os.path.basename(stem["filename"]).title(), "🎵", "Unknown"))
             st.markdown(
                 f"""
-                <div style="background-color:#f9f5ed;border-radius:8px;padding:8px; margin-bottom:4px;">
+                <div style="background-color:#f9f5ed;color:#183151;border-radius:8px;padding:8px; margin-bottom:4px;">
                 <span style="font-size:1.2em">{icon}</span> <b>{friendly}</b> <span style="color:#888;">({role})</span>
                 <br><small>Gain: <b>{stem["targetgain"]}</b> &nbsp; Fade: <b>{stem["fadeduration"]}s</b></small>
                 </div>
                 """, unsafe_allow_html=True)
     st.write("") 
-    # --- Play Mix React Component directly after details/collapse panels ---
-    mix_and_transition(
-        current_stems=st.session_state.current_stem_dicts,
-        next_stems=st.session_state.next_stem_dicts
-    )
-    st.markdown("---")  # Separator after Play Mix
+    llm_expl = st.session_state.get("llm_reasoning", "")
+    if llm_expl:
+        st.markdown("<div style='margin-top:18px'></div>", unsafe_allow_html=True)
+        st.markdown("#### 💡 LLM Reasoning/Explanation")
+        st.write(llm_expl)
+    st.markdown("---")
 
-# --- History Table, User Readable ---
-st.write("")
 if st.session_state.history:
     st.markdown("### 📜 Transition History")
-    st.write("")
     hist_rows = [
         {
             "⏰ Time": time.strftime('%H:%M:%S', time.localtime(entry["timestamp"])),
-            "🛤️ From Theme & Stems": entry["From"],
-            "🛤️ To Theme & Stems": entry["To"],
-            "🔄 Details": entry["Transition"]
+            "🛤️ From Theme & Stems": stems_detail(entry.get("from_stem_dicts", []), entry.get("from_theme", "")),
+            "🛤️ To Theme & Stems": stems_detail(entry.get("to_stem_dicts", []), entry.get("to_theme", "")),
+            "🔄 Details": entry.get("Transition", "")
         }
         for entry in st.session_state.history
     ]

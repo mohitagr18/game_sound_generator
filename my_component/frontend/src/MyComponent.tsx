@@ -1,19 +1,37 @@
+// ---------------------------------------------------------------------------
+// MyComponent.tsx (Streamlit Custom Component for Stem Mixing, Play, Fade)
+// ---------------------------------------------------------------------------
+// Step-by-step overview:
+// 1. Imports React, Howler.js (audio playback), Streamlit Component connector.
+// 2. Declares strong types for stems and internal state.
+// 3. Main class: Handles play button logic, parses stems from props, triggers fade out/in
+//    for current/next theme stems using Howler.js.
+// 4. UI: Displays a "Play Mix" button with Streamlit-style looks,
+//    and animated visual indicator ("Playing...") while active.
+// ---------------------------------------------------------------------------
+
 import React from "react";
 import { Howl } from "howler";
 import { withStreamlitConnection, StreamlitComponentBase, Streamlit } from "streamlit-component-lib";
 
-// Define the type for a stem object
+// ---------------------------------------------------------------------------
+// Stem type: Models a single track in the mix.
+// ---------------------------------------------------------------------------
 type Stem = {
   filename: string;
   targetgain: number;
   fadeduration: number;
 };
 
+// Internal UI state for play/fade indicator
 type State = {
   isPlaying: boolean;
   playDuration: number; // ms
 };
 
+// ---------------------------------------------------------------------------
+// Main Stem Mixer Component
+// ---------------------------------------------------------------------------
 class MyComponent extends StreamlitComponentBase<State> {
   constructor(props: any) {
     super(props);
@@ -23,16 +41,21 @@ class MyComponent extends StreamlitComponentBase<State> {
     };
   }
 
+  /**
+   * When Play Mix is clicked:
+   *  - Fades out all current stems (theme 1)
+   *  - Fades in all next stems (theme 2)
+   *  - Keeps UI indicator active for max fade duration (shows animated soundwaves)
+   */
   playMix = () => {
-    // Parse both payloads
+    // Parse stems from incoming props (as JSON string)
     const currentStems: Stem[] = this.props.args.current_stems
       ? JSON.parse(this.props.args.current_stems)
       : [];
     const nextStems: Stem[] = this.props.args.next_stems
       ? JSON.parse(this.props.args.next_stems)
       : [];
-
-    // Estimate max fade duration to keep UI indicator active
+    // Calculate max fade duration (keep UI indicator visible accordingly)
     let maxFade = 0;
     [...currentStems, ...nextStems].forEach((stem: Stem) => {
       if (stem.fadeduration * 1000 > maxFade) maxFade = stem.fadeduration * 1000;
@@ -56,20 +79,23 @@ class MyComponent extends StreamlitComponentBase<State> {
       console.log("Fading in next stem:", stem.filename, "to gain", stem.targetgain, "in", stem.fadeduration, "sec");
     });
 
-    // UI: Show "Playing..." for the max fade duration then revert
+    // UI: Show "Playing..." for max fade duration, then revert
     this.setState({ isPlaying: true, playDuration: maxFade || 3000 });
     setTimeout(() => {
       this.setState({ isPlaying: false });
     }, maxFade || 3000);
   };
 
+  // ---------------------------------------------------------------------------
+  // Main Render: Shows the Play Mix button, and animates an indicator while active.
+  // ---------------------------------------------------------------------------
   render = () => {
-    // Parse stems from args (sent as JSON string)
+    // Parse stems for display (in case you want to render details)
     const stems: Stem[] = this.props.args.current_stems
       ? JSON.parse(this.props.args.current_stems)
       : [];
 
-    // Button styling for Streamlit look
+    // Streamlit-style button for visual consistency
     const streamlitButtonStyle: React.CSSProperties = {
       backgroundColor: "#F1F5FB",
       border: "1px solid #CCCCCC",
@@ -87,7 +113,7 @@ class MyComponent extends StreamlitComponentBase<State> {
       marginBottom: "10px"
     };
 
-    // Simple animated soundwave (shown when playing)
+    // Animated soundwave bars ("playing" visual cue)
     const soundWaveAnim = (
       <div style={{
         display: "flex", alignItems: "center", gap: "0.5em",
@@ -118,8 +144,10 @@ class MyComponent extends StreamlitComponentBase<State> {
 
     return (
       <div>
+        {/* Show if no stems were found */}
         {stems.length === 0 && <div>No stems found.</div>}
 
+        {/* Play Mix button, disables when playing is active */}
         <button
           style={streamlitButtonStyle}
           onClick={this.playMix}
@@ -130,10 +158,12 @@ class MyComponent extends StreamlitComponentBase<State> {
           {this.state.isPlaying ? "Playing…" : "Play Mix"}
         </button>
 
+        {/* Show animated soundwave when "playing" */}
         {this.state.isPlaying && soundWaveAnim}
       </div>
     );
   };
 }
 
+// Export as a Streamlit-connected component
 export default withStreamlitConnection(MyComponent);

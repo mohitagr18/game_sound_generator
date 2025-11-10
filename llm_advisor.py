@@ -1,3 +1,17 @@
+# ---------------------------------------------------------------------------
+# llm_advisor.py
+#
+# Step-by-step overview:
+# 1. Imports all required dependencies (LLM API, os, regex, schema classes)
+# 2. Defines generate_mix_intent_from_folder: loads stem info from directory, builds MixIntent
+# 3. Defines LLMAdvisor class for accessing and using the Gemini (Google) LLM
+#     - Initializes LLM client (API key required)
+#     - Builds prompt for new music intent based on previous session and current state
+#     - Calls the generative LLM model
+#     - Parses out next mix intent (with robust JSON fallback/explanation)
+# 4. Returns output for use by main Streamlit app and transition UI
+# ---------------------------------------------------------------------------
+
 from google import genai
 import os
 import re
@@ -9,7 +23,10 @@ def generate_mix_intent_from_folder(theme: str,
                                    default_gain: float = 0.8,
                                    default_fade: float = 2.0
                                    ) -> MixIntent:
-    """Scans audioclips/{theme}/ for .wav files, returns MixIntent."""
+    """
+    Scans the audio_clips/{theme}/ directory for .wav files,
+    generates default gain/fade, and returns a MixIntent object.
+    """
     theme_dir = os.path.join(base_dir, theme)
     if not os.path.exists(theme_dir):
         raise FileNotFoundError(f"Theme folder not found: {theme_dir}")
@@ -30,7 +47,12 @@ def generate_mix_intent_from_folder(theme: str,
     return MixIntent(theme=theme, stem_intents=stem_intents)
 
 class LLMAdvisor:
+    """
+    Advisor class to interact with Gemini/Google LLM API for
+    generating music transition intents and explanations.
+    """
     def __init__(self, model_name="gemini-2.5-flash"):
+        # Load LLM API key from environment and initialize client
         self.model_name = model_name
         apikey = os.getenv("GOOGLE_API_KEY")
         if not apikey:
@@ -38,11 +60,18 @@ class LLMAdvisor:
         self.client = genai.Client(api_key=apikey)
 
     def recommend(self, session_log, current_state, next_theme, user_query=None):
+        """
+        Recommend the next mix intent (stems, gains, fades) via LLM API, given session log and theme.
+        """
         prompt = self._build_prompt(session_log, current_state, next_theme, user_query)
         response = self._call_llm_api(prompt)
         return self._parse_response(response)
 
     def _build_prompt(self, session_log, current_state, next_theme, user_query):
+        """
+        Construct LLM prompt with schema and complete context.
+        Always asks for valid JSON first, then reasoning/explanation.
+        """
         schema_description = '''Respond in two parts:
 1. A valid JSON object describing the next musical intent for this session, using this schema:
     "theme": str,
@@ -69,12 +98,15 @@ Always put the JSON block first, then the explanation.
         return prompt
 
     def _call_llm_api(self, prompt):
-        # This method assumes working Gemini/Google-provided API and correct auth.
+        """
+        Calls the Gemini/Google LLM model using the prompt (API key must be set).
+        """
         response = self.client.models.generate_content(
             model=self.model_name,
             contents=prompt
         )
         try:
+            # Gemini returns .candidates, OpenAI returns .text or similar
             candidates = getattr(response, "candidates", None)
             if candidates:
                 parts = candidates[0]['content']['parts']
@@ -86,9 +118,15 @@ Always put the JSON block first, then the explanation.
         return result
 
     def _parse_response(self, response):
+        """
+        Attempts to parse the LLM's response into two fields:
+          - next_intent (JSON for new musical stem plan)
+          - explanation (freeform text)
+        Handles fallback for malformed output/JSON blocks.
+        """
         result = {"next_intent": {}, "explanation": ""}
         try:
-            # First try simple extraction
+            # Match JSON object at top of response, then treat rest as explanation
             match = re.match(r"\s*({[\s\S]+?})\s*([\s\S]+)", response)
             if match:
                 intent_json = match.group(1)
@@ -97,7 +135,7 @@ Always put the JSON block first, then the explanation.
                 result["next_intent"] = intent
                 result["explanation"] = explanation
             else:
-                # --- Robust Fallback: extract any JSON block inside triple backticks or anywhere ---
+                # --- Robust fallback: Find any JSON block in full LLM text ---
                 explanation = response
                 json_regex = re.findall(r'``````', response)
                 if not json_regex:

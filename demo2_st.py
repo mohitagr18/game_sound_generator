@@ -1,3 +1,17 @@
+# ---------------------------------------------------------------------------
+# 🚀🎶 Live Soundtrack Crossfader: Instantly Blend Game Audio Themes!
+#
+# Step-by-step breakdown:
+# 1. Set up all necessary imports, helpers, and app environment
+# 2. Define theme/stem mappings and any utility functions for normalization/parsing
+# 3. Initialize Streamlit session state (persistent across reruns)
+# 4. Build UI for selecting current and next themes, and transition/play controls
+# 5. Handle transitions: generate current intent, call LLM for next intent, validate outputs, handle errors
+# 6. Show mixing details: Current and Next stems, with friendly icons and roles per stem
+# 7. Show transition history: full table of all transitions and stem/gain details
+# 8. (Throughout) Provide clear error/status/warning messages where needed
+# ---------------------------------------------------------------------------
+
 import streamlit as st
 import os
 import re
@@ -8,8 +22,13 @@ from my_component.stem_mixer import mix_and_transition
 from dotenv import load_dotenv
 import pandas as pd
 
+# Load any environment variables from .env file (for model/backend config)
 load_dotenv()
 
+# ----------------------------------------------------------------------------
+# STEM_FRIENDLY: mapping from stem keys to (friendly name, emoji, musical role)
+# Used for display in the UI and detailed mixing tables
+# ----------------------------------------------------------------------------
 STEM_FRIENDLY = {
     "synth": ("Synth", "🎹", "Melody"),
     "pad": ("Pad", "🛋️", "Ambiance"),
@@ -19,13 +38,21 @@ STEM_FRIENDLY = {
     "chimes": ("Chimes", "🔔", "Accent"),
 }
 
+# ----------------------------------------------------------------------------
+# THEME_KEYWORD_MAP: used to map messy theme names to a canonical internal key
+# ----------------------------------------------------------------------------
 THEME_KEYWORD_MAP = [
-    ("boss_combat", ["boss"]),
+    ("bosscombat", ["boss"]),
     ("combat", ["combat", "battle"]),
     ("stealth", ["stealth", "hidden"]),
     ("explore", ["explor", "jungle", "wondrous", "mysterious"]),
 ]
+
 def get_theme_key(theme_str):
+    """
+    Normalizes and maps a theme string (from UI or LLM) to a canonical key
+    Example: "Boss-Combat" -> "bosscombat"
+    """
     if not theme_str:
         return None
     s = str(theme_str).lower()
@@ -38,6 +65,10 @@ def get_theme_key(theme_str):
     return None
 
 def extract_llm_json_and_reasoning(text):
+    """
+    Parses out a JSON structure and extra reasoning text from an LLM explanation.
+    Used when the LLM doesn't provide properly structured output up front.
+    """
     stack = []
     start = None
     for i, c in enumerate(text):
@@ -61,7 +92,7 @@ def extract_llm_json_and_reasoning(text):
                     break
     return {}, ""
 
-# --- Session State Initialization ---
+# --- Streamlit session state: persist critical variables across reruns ---
 if "history" not in st.session_state:
     st.session_state.history = []
 if "status" not in st.session_state:
@@ -75,10 +106,14 @@ if "show_details" not in st.session_state:
 if "llm_reasoning" not in st.session_state:
     st.session_state.llm_reasoning = ""
 
+# ------------------------ Streamlit UI structure --------------------------
 st.title("🚀🎶 Live Soundtrack Crossfader: Instantly Blend Game Audio Themes!")
 st.markdown("")
-themes = ["explore", "stealth", "combat", "boss_combat"]
 
+# Theme choices to present in the UI
+themes = ["explore", "stealth", "combat", "bosscombat"]
+
+# Theme selectors for UI (Current and Next)
 col1, col2 = st.columns([1, 1], gap="large")
 with col1:
     st.markdown("#### 🎧 Current Theme")
@@ -94,6 +129,7 @@ with col2:
 
 st.write("")  # For spacing
 
+# Display transition/play controls (side-by-side for clarity)
 colb1, colb2 = st.columns([2, 1])
 with colb1:
     clicked = st.button(
@@ -102,8 +138,10 @@ with colb1:
 with colb2:
     st.write("")
 
+# ------------------- Transition Button Handler ------------------------
 if clicked:
     with st.spinner("🚧 Generating next theme, please wait..."):
+        # Step 1: Pull out currently active stems (for outgoing/current theme)
         current_intent = generate_mix_intent_from_folder(current_theme, base_dir="audio_clips/")
         current_stem_dicts = [
             {"filename": f"{current_theme}/{os.path.basename(stem.file_path)}",
@@ -113,6 +151,7 @@ if clicked:
         ]
         st.session_state.current_stem_dicts = current_stem_dicts
 
+        # Step 2: Use LLMAdvisor to recommend next set of stems (for incoming/next theme)
         advisor = LLMAdvisor()
         llm_output = advisor.recommend(
             session_log=st.session_state.get("history", []),
@@ -122,12 +161,14 @@ if clicked:
         )
         intent_dict = llm_output.get("next_intent", {})
         reasoning = ""
+        # Try fallback JSON reasoning extraction if needed
         if not intent_dict or not intent_dict.get("activestems"):
             intent_dict, reasoning = extract_llm_json_and_reasoning(llm_output.get("explanation", ""))
         else:
             reasoning = llm_output.get("explanation", "")
         st.session_state.llm_reasoning = reasoning
 
+        # Step 3: Error handling and output validation
         error_msg = None
         if not intent_dict or not intent_dict.get("activestems"):
             error_msg = "🛑 No valid music stems found from the model. Please try a different theme or re-run the transition."
@@ -137,13 +178,14 @@ if clicked:
         if error_msg:
             st.warning(error_msg)
         else:
+            # Step 4: Build stem dicts for the next theme (generated by LLM)
             stems_out = []
             for stem_name in intent_dict.get("activestems", []):
                 gain = intent_dict.get("targetgains", {}).get(stem_name, "?")
                 fade = intent_dict.get("fadedurations", {}).get(stem_name, "?")
-                file_path = f"{next_theme}/{stem_name}.wav"  
+                file_path = f"{next_theme}/{stem_name}.wav"
                 stems_out.append({
-                    "filename": file_path,    # Ensure this is a path the frontend can fetch
+                    "filename": file_path,
                     "targetgain": gain,
                     "fadeduration": fade
                 })
@@ -153,30 +195,29 @@ if clicked:
             st.session_state.status = f"✅ Transition: {current_theme} → {next_theme} Now Mixing..."
             st.session_state.show_details = True
 
-            # if st.session_state.current_stem_dicts and st.session_state.next_stem_dicts:
-            #     mix_and_transition(
-            #         st.session_state.current_stem_dicts,
-            #         st.session_state.next_stem_dicts
-            #     )
-
-
-            # --- History: Store FULL data for each theme and stem dicts for table display
+            # Log all transition data for history view
             st.session_state.history.append({
                 "timestamp": time.time(),
                 "from_theme": current_theme,
-                "from_stem_dicts": list(st.session_state.current_stem_dicts),  # full stem dicts
+                "from_stem_dicts": list(st.session_state.current_stem_dicts),
                 "to_theme": next_theme,
                 "to_stem_dicts": list(st.session_state.next_stem_dicts),
                 "Transition": f"{current_theme} → {next_theme} | Crossfade over {fade_sec}s"
             })
 
+            # Actually perform the mix/crossfade if both valid stem sets exist
             if st.session_state.current_stem_dicts and st.session_state.next_stem_dicts:
                 mix_and_transition(
                     st.session_state.current_stem_dicts,
                     st.session_state.next_stem_dicts
                 )
 
+# ------------------- Helper: Format stem display/details --------------------
 def stems_detail(stems, theme=None):
+    """
+    For stem dicts, generates a line-by-line, user-friendly string with all gain/fade data.
+    Used in transition history and table columns.
+    """
     if not stems:
         return ""
     rows = []
@@ -188,7 +229,8 @@ def stems_detail(stems, theme=None):
         rows.append(f"{fname} (gain={gain}, fade={fade}s)")
     joined = "<br>- ".join(rows)
     return (f"{theme}:<br>- " if theme else "") + joined
-    # return (f"{theme}: " if theme else "") + ", ".join(rows)
+
+# ------------------- Status, Mixing Details, and History Displays -----------------
 
 if st.session_state.status:
     st.success(st.session_state.status)
@@ -197,7 +239,7 @@ if st.session_state.status:
 if st.session_state.show_details:
     st.markdown("### 🎼 Mixing Details")
     colA, colB = st.columns(2)
-    # Current Theme Stems
+    # Left: Current Theme Stems
     with colA:
         st.markdown(f"##### Current Theme: {current_theme}")
         st.markdown("")
@@ -212,13 +254,12 @@ if st.session_state.show_details:
                 <br><small>Gain: <b>{stem["targetgain"]}</b> &nbsp; Fade: <b>{stem["fadeduration"]}s</b></small>
                 </div>
                 """, unsafe_allow_html=True)
-    # Next Theme Stems
+    # Right: Next Theme Stems
     with colB:
         st.markdown(f"##### Next Theme: {next_theme} (🧠 LLM-generated)")
         for stem in st.session_state.next_stem_dicts:
             fname_raw = os.path.basename(stem.get("filename", ""))
             stem_basename = re.sub(r'(\.wav)+$', '', fname_raw, flags=re.IGNORECASE)
-            # stem_basename = os.path.splitext(os.path.basename(stem["filename"]))[0]
             friendly, icon, role = STEM_FRIENDLY.get(
                 stem_basename,
                 (stem_basename.title(), "🎵", "Unknown")
@@ -231,7 +272,7 @@ if st.session_state.show_details:
                 <small>Gain <b>{stem["targetgain"]}</b>&nbsp; Fade <b>{stem["fadeduration"]}s</b></small>
                 </div>''', unsafe_allow_html=True
             )
-    st.write("") 
+    st.write("")
     llm_expl = st.session_state.get("llm_reasoning", "")
     if llm_expl:
         st.markdown("<div style='margin-top:18px'></div>", unsafe_allow_html=True)
@@ -239,9 +280,10 @@ if st.session_state.show_details:
         st.write(llm_expl)
     st.markdown("---")
 
+# ------------------- Transition History Table ---------------------
 if st.session_state.history:
     st.markdown("### 📜 Transition History")
-    # Only use this style + HTML snippet, nothing else
+    # Create a styled HTML table with all transition and stem/gain info
     style = """
     <style>
     table.history-table {border-collapse:collapse;width:100%;table-layout:fixed;}
@@ -271,4 +313,3 @@ if st.session_state.history:
     table_html += "</tbody></table>"
 
     st.markdown(table_html, unsafe_allow_html=True)
-

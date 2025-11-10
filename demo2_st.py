@@ -102,62 +102,63 @@ with colb2:
     st.write("")
 
 if clicked:
-    current_intent = generate_mix_intent_from_folder(current_theme, base_dir="audio_clips/")
-    current_stem_dicts = [
-        {"filename": f"{current_theme}/{os.path.basename(stem.file_path)}",
-         "targetgain": stem.target_gain,
-         "fadeduration": stem.fade_duration}
-        for stem in current_intent.stem_intents
-    ]
-    st.session_state.current_stem_dicts = current_stem_dicts
+    with st.spinner("🚧 Generating next theme, please wait..."):
+        current_intent = generate_mix_intent_from_folder(current_theme, base_dir="audio_clips/")
+        current_stem_dicts = [
+            {"filename": f"{current_theme}/{os.path.basename(stem.file_path)}",
+            "targetgain": stem.target_gain,
+            "fadeduration": stem.fade_duration}
+            for stem in current_intent.stem_intents
+        ]
+        st.session_state.current_stem_dicts = current_stem_dicts
 
-    advisor = LLMAdvisor()
-    llm_output = advisor.recommend(
-        session_log=st.session_state.get("history", []),
-        current_state=current_stem_dicts,
-        next_theme=next_theme,
-        user_query=None
-    )
-    intent_dict = llm_output.get("next_intent", {})
-    reasoning = ""
-    if not intent_dict or not intent_dict.get("activestems"):
-        intent_dict, reasoning = extract_llm_json_and_reasoning(llm_output.get("explanation", ""))
-    else:
-        reasoning = llm_output.get("explanation", "")
-    st.session_state.llm_reasoning = reasoning
-
-    stems_out = []
-    for stem_name in intent_dict.get("activestems", []):
-        gain = intent_dict.get("targetgains", {}).get(stem_name, "?")
-        fade = intent_dict.get("fadedurations", {}).get(stem_name, "?")
-        file_path = f"{next_theme}/{stem_name}.wav"  
-        stems_out.append({
-            "filename": file_path,    # Ensure this is a path the frontend can fetch
-            "targetgain": gain,
-            "fadeduration": fade
-        })
-    st.session_state.next_stem_dicts = stems_out
-
-    fade_sec = stems_out[0]['fadeduration'] if stems_out else "?"
-    st.session_state.status = f"✅ Transition: {current_theme} → {next_theme} Now Mixing..."
-    st.session_state.show_details = True
-
-    if st.session_state.current_stem_dicts and st.session_state.next_stem_dicts:
-        mix_and_transition(
-            st.session_state.current_stem_dicts,
-            st.session_state.next_stem_dicts
+        advisor = LLMAdvisor()
+        llm_output = advisor.recommend(
+            session_log=st.session_state.get("history", []),
+            current_state=current_stem_dicts,
+            next_theme=next_theme,
+            user_query=None
         )
+        intent_dict = llm_output.get("next_intent", {})
+        reasoning = ""
+        if not intent_dict or not intent_dict.get("activestems"):
+            intent_dict, reasoning = extract_llm_json_and_reasoning(llm_output.get("explanation", ""))
+        else:
+            reasoning = llm_output.get("explanation", "")
+        st.session_state.llm_reasoning = reasoning
+
+        stems_out = []
+        for stem_name in intent_dict.get("activestems", []):
+            gain = intent_dict.get("targetgains", {}).get(stem_name, "?")
+            fade = intent_dict.get("fadedurations", {}).get(stem_name, "?")
+            file_path = f"{next_theme}/{stem_name}.wav"  
+            stems_out.append({
+                "filename": file_path,    # Ensure this is a path the frontend can fetch
+                "targetgain": gain,
+                "fadeduration": fade
+            })
+        st.session_state.next_stem_dicts = stems_out
+
+        fade_sec = stems_out[0]['fadeduration'] if stems_out else "?"
+        st.session_state.status = f"✅ Transition: {current_theme} → {next_theme} Now Mixing..."
+        st.session_state.show_details = True
+
+        if st.session_state.current_stem_dicts and st.session_state.next_stem_dicts:
+            mix_and_transition(
+                st.session_state.current_stem_dicts,
+                st.session_state.next_stem_dicts
+            )
 
 
-    # --- History: Store FULL data for each theme and stem dicts for table display
-    st.session_state.history.append({
-        "timestamp": time.time(),
-        "from_theme": current_theme,
-        "from_stem_dicts": list(st.session_state.current_stem_dicts),  # full stem dicts
-        "to_theme": next_theme,
-        "to_stem_dicts": list(st.session_state.next_stem_dicts),
-        "Transition": f"{current_theme} → {next_theme} | Crossfade over {fade_sec}s"
-    })
+        # --- History: Store FULL data for each theme and stem dicts for table display
+        st.session_state.history.append({
+            "timestamp": time.time(),
+            "from_theme": current_theme,
+            "from_stem_dicts": list(st.session_state.current_stem_dicts),  # full stem dicts
+            "to_theme": next_theme,
+            "to_stem_dicts": list(st.session_state.next_stem_dicts),
+            "Transition": f"{current_theme} → {next_theme} | Crossfade over {fade_sec}s"
+        })
 
 def stems_detail(stems, theme=None):
     if not stems:
@@ -183,6 +184,7 @@ if st.session_state.show_details:
     # Current Theme Stems
     with colA:
         st.markdown(f"##### Current Theme: {current_theme}")
+        st.markdown("")
         for stem in st.session_state.current_stem_dicts:
             friendly, icon, role = STEM_FRIENDLY.get(
                 os.path.splitext(os.path.basename(stem["filename"]))[0],
@@ -196,7 +198,7 @@ if st.session_state.show_details:
                 """, unsafe_allow_html=True)
     # Next Theme Stems
     with colB:
-        st.markdown(f"##### Next Theme: {next_theme} (LLM-generated)")
+        st.markdown(f"##### Next Theme: {next_theme} (🧠 LLM-generated)")
         for stem in st.session_state.next_stem_dicts:
             fname_raw = os.path.basename(stem.get("filename", ""))
             stem_basename = re.sub(r'(\.wav)+$', '', fname_raw, flags=re.IGNORECASE)

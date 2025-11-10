@@ -2,6 +2,7 @@
 Flask>=3.0.3                # Latest stable Flask
 google-adk>=1.16.0          # Latest ADK 
 gunicorn>=23.0.0            # Production WSGI server
+pandas>=2.1.0               # Data manipulation library
 
 # Audio Processing
 pydub>=0.25.1               # Latest stable (unchanged since 2021, mature/stable)

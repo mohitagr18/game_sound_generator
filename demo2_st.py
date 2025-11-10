@@ -6,6 +6,7 @@ import json
 from llm_advisor import LLMAdvisor, generate_mix_intent_from_folder
 from my_component.stem_mixer import mix_and_transition
 from dotenv import load_dotenv
+import pandas as pd
 
 load_dotenv()
 
@@ -129,8 +130,9 @@ if clicked:
     for stem_name in intent_dict.get("activestems", []):
         gain = intent_dict.get("targetgains", {}).get(stem_name, "?")
         fade = intent_dict.get("fadedurations", {}).get(stem_name, "?")
+        file_path = f"{next_theme}/{stem_name}.wav"  
         stems_out.append({
-            "filename": stem_name,
+            "filename": file_path,    # Ensure this is a path the frontend can fetch
             "targetgain": gain,
             "fadeduration": fade
         })
@@ -139,6 +141,13 @@ if clicked:
     fade_sec = stems_out[0]['fadeduration'] if stems_out else "?"
     st.session_state.status = f"✅ Transition: {current_theme} → {next_theme} Now Mixing..."
     st.session_state.show_details = True
+
+    if st.session_state.current_stem_dicts and st.session_state.next_stem_dicts:
+        mix_and_transition(
+            st.session_state.current_stem_dicts,
+            st.session_state.next_stem_dicts
+        )
+
 
     # --- History: Store FULL data for each theme and stem dicts for table display
     st.session_state.history.append({
@@ -155,11 +164,14 @@ def stems_detail(stems, theme=None):
         return ""
     rows = []
     for stem in stems:
-        fname = os.path.basename(stem.get("filename", ""))
+        fname_raw = os.path.basename(stem.get("filename", ""))
+        fname = re.sub(r'(\.wav)+$', '', fname_raw, flags=re.IGNORECASE)
         gain = stem.get("targetgain", "?")
         fade = stem.get("fadeduration", "?")
         rows.append(f"{fname} (gain={gain}, fade={fade}s)")
-    return (f"{theme}: " if theme else "") + ", ".join(rows)
+    joined = "<br>- ".join(rows)
+    return (f"{theme}:<br>- " if theme else "") + joined
+    # return (f"{theme}: " if theme else "") + ", ".join(rows)
 
 if st.session_state.status:
     st.success(st.session_state.status)
@@ -186,16 +198,21 @@ if st.session_state.show_details:
     with colB:
         st.markdown(f"##### Next Theme: {next_theme} (LLM-generated)")
         for stem in st.session_state.next_stem_dicts:
+            fname_raw = os.path.basename(stem.get("filename", ""))
+            stem_basename = re.sub(r'(\.wav)+$', '', fname_raw, flags=re.IGNORECASE)
+            # stem_basename = os.path.splitext(os.path.basename(stem["filename"]))[0]
             friendly, icon, role = STEM_FRIENDLY.get(
-                os.path.splitext(os.path.basename(stem["filename"]))[0],
-                (os.path.basename(stem["filename"]).title(), "🎵", "Unknown"))
+                stem_basename,
+                (stem_basename.title(), "🎵", "Unknown")
+            )
             st.markdown(
-                f"""
-                <div style="background-color:#f9f5ed;color:#183151;border-radius:8px;padding:8px; margin-bottom:4px;">
-                <span style="font-size:1.2em">{icon}</span> <b>{friendly}</b> <span style="color:#888;">({role})</span>
-                <br><small>Gain: <b>{stem["targetgain"]}</b> &nbsp; Fade: <b>{stem["fadeduration"]}s</b></small>
-                </div>
-                """, unsafe_allow_html=True)
+                f'''<div style="background-color:#f9f5ed;color:#183151;border-radius:8px;padding:8px; margin-bottom:4px;">
+                <span style="font-size:1.2em">{icon}</span>
+                <b>{friendly}</b>
+                <span style="color:#888">({role})</span><br>
+                <small>Gain <b>{stem["targetgain"]}</b>&nbsp; Fade <b>{stem["fadeduration"]}s</b></small>
+                </div>''', unsafe_allow_html=True
+            )
     st.write("") 
     llm_expl = st.session_state.get("llm_reasoning", "")
     if llm_expl:
@@ -206,13 +223,49 @@ if st.session_state.show_details:
 
 if st.session_state.history:
     st.markdown("### 📜 Transition History")
-    hist_rows = [
-        {
-            "⏰ Time": time.strftime('%H:%M:%S', time.localtime(entry["timestamp"])),
-            "🛤️ From Theme & Stems": stems_detail(entry.get("from_stem_dicts", []), entry.get("from_theme", "")),
-            "🛤️ To Theme & Stems": stems_detail(entry.get("to_stem_dicts", []), entry.get("to_theme", "")),
-            "🔄 Details": entry.get("Transition", "")
-        }
-        for entry in st.session_state.history
-    ]
-    st.table(hist_rows)
+    # Only use this style + HTML snippet, nothing else
+    style = """
+    <style>
+    table.history-table {border-collapse:collapse;width:100%;table-layout:fixed;}
+    table.history-table th, table.history-table td {
+        padding:8px;
+        border:1px solid #ddd;
+        vertical-align:top;
+        text-align:left;
+        word-break:break-word;
+        white-space:pre-line;
+        max-width:220px;
+        font-size:1em;
+    }
+    table.history-table th {background:#faf7f2;}
+    table.history-table td {background:#fff;}
+    </style>
+    """
+    table_html = style + "<table class='history-table'><thead><tr>" + \
+                 "<th>⏰ Time</th><th>🛤️ From Theme & Stems</th><th>🛤️ To Theme & Stems</th><th>🔄 Details</th></tr></thead><tbody>"
+
+    for entry in st.session_state.history:
+        dt = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(entry["timestamp"]))
+        from_stems_str = stems_detail(entry.get("from_stem_dicts", []), entry.get("from_theme", ""))
+        to_stems_str = stems_detail(entry.get("to_stem_dicts", []), entry.get("to_theme", ""))
+        transition = entry.get("Transition", "")
+        table_html += f"<tr><td>{dt}</td><td>{from_stems_str}</td><td>{to_stems_str}</td><td>{transition}</td></tr>"
+    table_html += "</tbody></table>"
+
+    st.markdown(table_html, unsafe_allow_html=True)
+
+
+
+# if st.session_state.history:
+#     st.markdown("### 📜 Transition History")
+#     hist_rows = [
+#         {
+#             "⏰ Time": time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(entry["timestamp"])),
+#             "🛤️ From Theme & Stems": stems_detail(entry.get("from_stem_dicts", []), entry.get("from_theme", "")),
+#             "🛤️ To Theme & Stems": stems_detail(entry.get("to_stem_dicts", []), entry.get("to_theme", "")),
+#             "🔄 Details": entry.get("Transition", "")
+#         }
+#         for entry in st.session_state.history
+#     ]
+#     df = pd.DataFrame(hist_rows)
+#     st.dataframe(df, use_container_width=False)

@@ -1,7 +1,3 @@
-Here is your **full, copy/paste-ready portfolio README**. This includes all technical highlights, the key point about **Gemini LLM powering the audio mix intent**, integration of **Streamlit**, **React**, and **Howler.js**, and emoji-rich formatting!
-
-***
-
 # 🚀🎶 Game Sound Generator: Live Theme StemMix Demo
 
 **AI-powered, cross-platform game audio mixing—mix themes, fade stems, and explore transitions in REAL time!**
@@ -111,14 +107,6 @@ game_sound_generator/
 
 > ![UI Preview](screenshots/app_img1.png)
 > ![UI Preview](screenshots/app_img2.png)
-
-***
-
-## 💡 Portfolio Tips
-
-- *Unique architecture:* Combines Python, AI, and browser-based multi-track audio mixing.
-- AI-powered intent, explanation, and reasoning for every musical transition.
-- *Perfect for resumes, creative tech demos, and technical interviews!*
 
 ***
 

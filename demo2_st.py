@@ -75,7 +75,8 @@ if "show_details" not in st.session_state:
 if "llm_reasoning" not in st.session_state:
     st.session_state.llm_reasoning = ""
 
-st.title("🎵 Game Audio StemMix Live Transition Demo")
+st.title("🚀🎶 Live Soundtrack Crossfader: Instantly Blend Game Audio Themes!")
+st.markdown("")
 themes = ["explore", "stealth", "combat", "boss_combat"]
 
 col1, col2 = st.columns([1, 1], gap="large")
@@ -127,38 +128,53 @@ if clicked:
             reasoning = llm_output.get("explanation", "")
         st.session_state.llm_reasoning = reasoning
 
-        stems_out = []
-        for stem_name in intent_dict.get("activestems", []):
-            gain = intent_dict.get("targetgains", {}).get(stem_name, "?")
-            fade = intent_dict.get("fadedurations", {}).get(stem_name, "?")
-            file_path = f"{next_theme}/{stem_name}.wav"  
-            stems_out.append({
-                "filename": file_path,    # Ensure this is a path the frontend can fetch
-                "targetgain": gain,
-                "fadeduration": fade
+        error_msg = None
+        if not intent_dict or not intent_dict.get("activestems"):
+            error_msg = "🛑 No valid music stems found from the model. Please try a different theme or re-run the transition."
+        elif any(val == '?' or val is None for val in intent_dict.get("targetgains", {}).values()):
+            error_msg = "⚠️ Some target gain values were not generated. Please check your input or retry."
+
+        if error_msg:
+            st.warning(error_msg)
+        else:
+            stems_out = []
+            for stem_name in intent_dict.get("activestems", []):
+                gain = intent_dict.get("targetgains", {}).get(stem_name, "?")
+                fade = intent_dict.get("fadedurations", {}).get(stem_name, "?")
+                file_path = f"{next_theme}/{stem_name}.wav"  
+                stems_out.append({
+                    "filename": file_path,    # Ensure this is a path the frontend can fetch
+                    "targetgain": gain,
+                    "fadeduration": fade
+                })
+            st.session_state.next_stem_dicts = stems_out
+
+            fade_sec = stems_out[0]['fadeduration'] if stems_out else "?"
+            st.session_state.status = f"✅ Transition: {current_theme} → {next_theme} Now Mixing..."
+            st.session_state.show_details = True
+
+            # if st.session_state.current_stem_dicts and st.session_state.next_stem_dicts:
+            #     mix_and_transition(
+            #         st.session_state.current_stem_dicts,
+            #         st.session_state.next_stem_dicts
+            #     )
+
+
+            # --- History: Store FULL data for each theme and stem dicts for table display
+            st.session_state.history.append({
+                "timestamp": time.time(),
+                "from_theme": current_theme,
+                "from_stem_dicts": list(st.session_state.current_stem_dicts),  # full stem dicts
+                "to_theme": next_theme,
+                "to_stem_dicts": list(st.session_state.next_stem_dicts),
+                "Transition": f"{current_theme} → {next_theme} | Crossfade over {fade_sec}s"
             })
-        st.session_state.next_stem_dicts = stems_out
 
-        fade_sec = stems_out[0]['fadeduration'] if stems_out else "?"
-        st.session_state.status = f"✅ Transition: {current_theme} → {next_theme} Now Mixing..."
-        st.session_state.show_details = True
-
-        if st.session_state.current_stem_dicts and st.session_state.next_stem_dicts:
-            mix_and_transition(
-                st.session_state.current_stem_dicts,
-                st.session_state.next_stem_dicts
-            )
-
-
-        # --- History: Store FULL data for each theme and stem dicts for table display
-        st.session_state.history.append({
-            "timestamp": time.time(),
-            "from_theme": current_theme,
-            "from_stem_dicts": list(st.session_state.current_stem_dicts),  # full stem dicts
-            "to_theme": next_theme,
-            "to_stem_dicts": list(st.session_state.next_stem_dicts),
-            "Transition": f"{current_theme} → {next_theme} | Crossfade over {fade_sec}s"
-        })
+            if st.session_state.current_stem_dicts and st.session_state.next_stem_dicts:
+                mix_and_transition(
+                    st.session_state.current_stem_dicts,
+                    st.session_state.next_stem_dicts
+                )
 
 def stems_detail(stems, theme=None):
     if not stems:
@@ -256,18 +272,3 @@ if st.session_state.history:
 
     st.markdown(table_html, unsafe_allow_html=True)
 
-
-
-# if st.session_state.history:
-#     st.markdown("### 📜 Transition History")
-#     hist_rows = [
-#         {
-#             "⏰ Time": time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(entry["timestamp"])),
-#             "🛤️ From Theme & Stems": stems_detail(entry.get("from_stem_dicts", []), entry.get("from_theme", "")),
-#             "🛤️ To Theme & Stems": stems_detail(entry.get("to_stem_dicts", []), entry.get("to_theme", "")),
-#             "🔄 Details": entry.get("Transition", "")
-#         }
-#         for entry in st.session_state.history
-#     ]
-#     df = pd.DataFrame(hist_rows)
-#     st.dataframe(df, use_container_width=False)

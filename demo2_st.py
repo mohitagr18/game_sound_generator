@@ -183,7 +183,11 @@ if clicked:
             for stem_name in intent_dict.get("activestems", []):
                 gain = intent_dict.get("targetgains", {}).get(stem_name, "?")
                 fade = intent_dict.get("fadedurations", {}).get(stem_name, "?")
-                file_path = f"{next_theme}/{stem_name}.wav"
+                # Ensure stem_name does not already have .wav and does not have the theme as a prefix
+                base_stem = os.path.basename(stem_name)  # Strips theme dir if present
+                base_stem = re.sub(r'(\.wav)+$', '', base_stem, flags=re.IGNORECASE)  # Remove any .wav extension
+                file_path = f"{next_theme}/{base_stem}.wav"
+                print(f"Next stem file path: {file_path}")
                 stems_out.append({
                     "filename": file_path,
                     "targetgain": gain,
@@ -296,6 +300,7 @@ if st.session_state.history:
         white-space:pre-line;
         max-width:220px;
         font-size:1em;
+        color:#183151;
     }
     table.history-table th {background:#faf7f2;}
     table.history-table td {background:#fff;}

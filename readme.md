@@ -31,16 +31,14 @@
 
 This project uses a hybrid architecture where **Python** handles logic/AI, but the **Browser** streams heavy audio directly from the **Cloud**.
 
-```mermaid
 graph TD
-    User[User] -->|Selects Theme| UI[Streamlit UI (Python)]
+    User[User] -->|Selects Theme| UI[Streamlit UI Python]
     UI -->|Context + File List| AI[Gemini LLM]
     AI -->|JSON Mix Intent| UI
-    UI -->|Props: {files, gain, fade}| Frontend[React Component]
+    UI -->|Props: files, gain, fade| Frontend[React Component]
     Frontend -->|Fetch Audio| GCS[Google Cloud Storage]
     GCS -->|Stream .wav| Frontend
     Frontend -->|Mix & Play| User
-```
 
 | Layer       | Technology    | Role                                                      |
 |-------------|--------------|-----------------------------------------------------------|

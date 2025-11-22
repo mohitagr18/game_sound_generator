@@ -75,7 +75,7 @@ class MyComponent extends StreamlitComponentBase<State> {
 
     // 2. Fade out current stems
     currentStems.forEach((stem: Stem) => {
-      const url = "http://localhost:9000/audio_clips/" + stem.filename;
+      const url = "https://storage.googleapis.com/live-crossfader-assets-ma/audio_clips/" + stem.filename;
       const sound = new Howl({ src: [url], loop: true }); // Assuming loop for game audio
       
       // Initialize at target volume, then fade to 0
@@ -95,7 +95,7 @@ class MyComponent extends StreamlitComponentBase<State> {
 
     // 3. Fade in next stems
     nextStems.forEach((stem: Stem) => {
-      const url = "http://localhost:9000/audio_clips/" + stem.filename;
+      const url = "https://storage.googleapis.com/live-crossfader-assets-ma/audio_clips/" + stem.filename;
       const sound = new Howl({ src: [url], loop: true }); // Assuming loop for game audio
       
       // Initialize at 0, fade to target

@@ -118,12 +118,12 @@ col1, col2 = st.columns([1, 1], gap="large")
 with col1:
     st.markdown("#### 🎧 Current Theme")
     current_theme = st.selectbox(
-        "Theme", themes, key="current_theme_select", index=0, help="Theme currently playing"
+        "Theme", themes, key="current_theme_select", index=2, help="Theme currently playing"
     )
 with col2:
     st.markdown("#### 🚀 Next Theme")
     next_theme = st.selectbox(
-        "Theme", themes, key="next_theme_select", index=1, help="Theme to fade in/mix with current"
+        "Theme", themes, key="next_theme_select", index=0, help="Theme to fade in/mix with current"
     )
     normalized_next_theme = get_theme_key(next_theme)
 
